@@ -1,0 +1,27 @@
+# General
+.DS_Store
+*.log
+
+# Python / Backend
+__pycache__/
+*.pyc
+.env
+venv/
+*.egg-info/
+
+# Flutter / Frontend
+/frontend/build/
+/frontend/.dart_tool/
+/frontend/.idea/
+/frontend/.flutter-plugins
+/frontend/.flutter-plugins-dependencies
+/frontend/.packages
+/frontend/pubspec.lock
+
+# IDE-specific
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
