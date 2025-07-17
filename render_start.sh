@@ -8,5 +8,5 @@ python -m venv venv
 echo "--- Installing dependencies using the venv's pip ---"
 ./venv/bin/pip install -r requirements.txt
 
-echo "--- Starting Gunicorn Server using the venv's gunicorn ---"
-./venv/bin/gunicorn --config gunicorn_config.py app:app
+echo "--- Starting Gunicorn Server using the venv's python and -m flag ---"
+./venv/bin/python -m gunicorn --config gunicorn_config.py app:app
