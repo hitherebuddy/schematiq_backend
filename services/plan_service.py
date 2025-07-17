@@ -12,32 +12,26 @@ class PlanService:
 
     def create_new_plan(self, user_id, user_input, mode, extras=None):
         prompt = PromptLibrary.generate_base_plan(user_input, mode, extras)
-        # The AI now returns a full plan object, not just a list of steps
         plan_data_json = gemini_service.generate_json_response(prompt)
         
         if isinstance(plan_data_json, dict) and 'error' in plan_data_json:
             return plan_data_json
 
-        # --- ROBUST FIX FOR DATA STRUCTURE ---
-        # This guarantees every field, especially user_id, is correctly placed at the top level,
-        # resolving the cause of the 403 error.
         plan_id = plan_data_json.get('id', str(uuid.uuid4()))
         
-        # Defensively determine the source of metadata, in case the AI nests it incorrectly.
         metadata_source = plan_data_json
         if 'steps' in plan_data_json and isinstance(plan_data_json['steps'], dict):
              metadata_source = plan_data_json['steps']
         
-        # Ensure 'steps' is always a list, even if the AI malforms it.
         steps_list = plan_data_json.get('steps')
         if isinstance(steps_list, dict):
             steps_list = steps_list.get('steps', [])
 
         new_plan = {
             "id": plan_id,
-            "user_id": user_id, # Always use the user_id from the authenticated session
+            "user_id": user_id,
             "title": metadata_source.get('title', user_input),
-            "mode": mode, # Use the mode passed in, not the one from the AI, for consistency
+            "mode": mode,
             "estimated_duration": metadata_source.get('estimated_duration'),
             "budget_level": metadata_source.get('budget_level'),
             "tags": metadata_source.get('tags', []),
@@ -55,8 +49,8 @@ class PlanService:
 
         step_found = False
         for step in plan.get('steps', []):
-            if step.get('id') == step_id:
-                # Toggle the is_complete status
+            # Add a check to ensure we're dealing with a dictionary
+            if isinstance(step, dict) and step.get('id') == step_id:
                 step['is_complete'] = not step.get('is_complete', False)
                 step_found = True
                 break
@@ -84,25 +78,35 @@ class PlanService:
             return {"error": "Step to replan from not found"}, 404
         
         prompt = PromptLibrary.replan_based_on_outcome(plan_json_str, completed_step_title, outcome, reason)
-        new_steps_json = gemini_service.generate_json_response(prompt)
+        ai_response = gemini_service.generate_json_response(prompt)
         
-        if isinstance(new_steps_json, dict) and 'error' in new_steps_json:
-            return new_steps_json, 500
+        if isinstance(ai_response, dict) and 'error' in ai_response:
+            return ai_response, 500
 
-        # Update the original plan with the new steps
+        # --- VALIDATION FIX FOR AI RESPONSE STRUCTURE ---
+        validated_new_steps = []
+        if isinstance(ai_response, list):
+            # This is the expected, correct format
+            validated_new_steps = ai_response
+        elif isinstance(ai_response, dict) and 'steps' in ai_response and isinstance(ai_response['steps'], list):
+            # This handles the case where the AI incorrectly returns a full plan object
+            validated_new_steps = ai_response['steps']
+        else:
+            # The AI returned something completely unexpected
+            print(f"Unexpected AI replan format: {ai_response}")
+            return {"error": "AI returned an invalid format for the replan."}, 500
+        # --- END OF FIX ---
+
         original_steps = plan['steps']
         new_plan_steps = []
         for step in original_steps:
-            if step['id'] == step_id:
+            if isinstance(step, dict) and step.get('id') == step_id:
                 step['is_complete'] = True
                 new_plan_steps.append(step)
-            elif step['is_complete']:
+            elif isinstance(step, dict) and step.get('is_complete'):
                 new_plan_steps.append(step)
 
-        # The AI returns a list of new steps, which we must extend to our list
-        if isinstance(new_steps_json, list):
-            new_plan_steps.extend(new_steps_json)
-        
+        new_plan_steps.extend(validated_new_steps)
         plan['steps'] = new_plan_steps
         
         return plan, 200
