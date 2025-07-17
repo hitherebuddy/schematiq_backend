@@ -1,5 +1,5 @@
 Flask
 Flask-Cors
-python-dotenv
+Gunicorn
 google-generativeai
-PyJWT # For authentication
+PyJWT
