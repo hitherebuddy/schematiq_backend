@@ -1,10 +1,9 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 # Exit immediately if a command exits with a non-zero status.
-set -e
+set -o errexit
 
-echo "--- Installing Dependencies ---"
-pip install -r requirements.txt
+echo "--- Installing dependencies using python -m pip ---"
+python -m pip install -r requirements.txt
 
-echo "--- Starting Gunicorn Server ---"
-gunicorn --config gunicorn_config.py app:app
+echo "--- Starting server with python -m gunicorn ---"
+python -m gunicorn --config gunicorn_config.py app:app
