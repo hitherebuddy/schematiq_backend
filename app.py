@@ -69,46 +69,6 @@ def generate_plan(current_user_payload):
     if isinstance(plan, dict) and "error" in plan:
         return jsonify(plan), 500
     return jsonify(plan), 201
-    
-@app.route('/api/plan/next_move', methods=['POST'])
-@token_required
-def get_next_move(current_user_payload):
-    plan_data = request.get_json()
-    if not plan_data:
-        return jsonify({"error": "Missing plan data in request"}), 400
-
-    plan_json_str = json.dumps(plan_data, indent=2)
-    prompt = PromptLibrary.get_next_best_move_suggestion(plan_json_str)
-    response = gemini_service.generate_json_response(prompt)
-
-    if isinstance(response, dict) and 'error' in response:
-        return jsonify(response), 500
-
-    return jsonify(response)
-
-@app.route('/api/ask_ai_on_step', methods=['POST'])
-@token_required
-def ask_ai_on_step(current_user_payload):
-    data = request.get_json()
-    if not data or 'step_description' not in data or 'user_question' not in data:
-        return jsonify({"error": "Missing step_description or user_question"}), 400
-    result = plan_service.get_ai_step_assistance(
-        data['step_description'], data['user_question']
-    )
-    if 'error' in result:
-        return jsonify(result), 500
-    return jsonify({"answer": result})
-
-@app.route('/api/decompose_step', methods=['POST'])
-@token_required
-def decompose_step(current_user_payload):
-    data = request.get_json()
-    if not data or 'parent_step_title' not in data:
-        return jsonify({"error": "Missing parent_step_title"}), 400
-    result = plan_service.get_step_decomposition(data['parent_step_title'])
-    if "error" in result:
-        return jsonify(result), 500
-    return jsonify({"micro_steps": result})
 
 @app.route('/api/plan/<plan_id>/step/<step_id>', methods=['PATCH'])
 @token_required
@@ -152,53 +112,7 @@ def simulate_agent(current_user_payload, plan_id):
     plan_json_str = json.dumps(plan, indent=2)
     prompt = PromptLibrary.agent_simulation(plan_json_str, data['persona'], data['argument'])
     response = gemini_service.generate_text_response(prompt)
-
     return jsonify({"agent_response": response})
-
-@app.route('/api/discover_idea', methods=['POST'])
-@token_required
-def discover_idea(current_user_payload):
-    data = request.get_json()
-    if not data or 'niche' not in data:
-        return jsonify({"error": "Missing 'niche' in request"}), 400
-    
-    prompt = PromptLibrary.discover_idea(data['niche'])
-    idea = gemini_service.generate_text_response(prompt)
-    return jsonify({"idea": idea})
-
-@app.route('/api/plan/<plan_id>/export/pdf', methods=['GET'])
-@token_required
-def export_plan_pdf(current_user_payload, plan_id):
-    user_id = current_user_payload['user_id']
-    plan = Config.DATABASE['plans'].get(plan_id)
-    if not plan or plan.get('user_id') != user_id:
-        return jsonify({"error": "Plan not found or unauthorized"}), 404
-
-    html_content = f"<h1>{plan['title']}</h1>"
-    for step in plan['steps']:
-        html_content += f"<h2>Step: {step['title']}</h2>"
-        if step.get('subtasks'):
-            html_content += "<ul>"
-            for subtask in step['subtasks']:
-                html_content += f"<li>{subtask}</li>"
-            html_content += "</ul>"
-            
-    return jsonify({"message": "PDF generation endpoint is conceptual.", "html_preview": html_content})
-
-@app.route('/api/research', methods=['POST'])
-@token_required
-def research(current_user_payload):
-    data = request.get_json()
-    if not data or 'query' not in data:
-        return jsonify({"error": "Missing 'query' in request"}), 400
-    
-    query = data['query']
-    result = research_service.perform_research(query)
-
-    if isinstance(result, dict) and 'error' in result:
-        return jsonify(result), 500
-        
-    return jsonify({"research_summary": result})
 
 @app.route('/api/plan/<plan_id>/forecast', methods=['GET'])
 @token_required
@@ -206,11 +120,10 @@ def get_plan_forecast(current_user_payload, plan_id):
     user_id = current_user_payload['user_id']
     plan = Config.DATABASE['plans'].get(plan_id)
     if not plan or plan.get('user_id') != user_id:
-        return jsonify({"error": "Plan not found or unauthorized"}), 404
+        return jsonify({"error": "Plan not found or unauthorized"}), 403
 
     forecast_data = []
     current_date = datetime.now()
-
     for step in plan['steps']:
         estimate_obj = step.get('time_estimate', {'min': 1, 'max': 1, 'unit': 'days'})
         avg_duration = (estimate_obj.get('min', 1) + estimate_obj.get('max', 1)) / 2
@@ -223,7 +136,6 @@ def get_plan_forecast(current_user_payload, plan_id):
             duration_delta = timedelta(days=avg_duration)
 
         end_date = current_date + duration_delta
-        
         forecast_data.append({
             "step_title": step['title'],
             "start_date": current_date.isoformat(),
@@ -232,8 +144,40 @@ def get_plan_forecast(current_user_payload, plan_id):
             "is_milestone": step.get('is_milestone', False)
         })
         current_date = end_date + timedelta(days=1)
-
     return jsonify(forecast_data)
+
+@app.route('/api/discover_idea', methods=['POST'])
+@token_required
+def discover_idea(current_user_payload):
+    data = request.get_json()
+    if not data or 'niche' not in data:
+        return jsonify({"error": "Missing 'niche' in request"}), 400
+    prompt = PromptLibrary.discover_idea(data['niche'])
+    idea = gemini_service.generate_text_response(prompt)
+    return jsonify({"idea": idea})
+
+@app.route('/api/research', methods=['POST'])
+@token_required
+def research(current_user_payload):
+    data = request.get_json()
+    if not data or 'query' not in data:
+        return jsonify({"error": "Missing 'query' in request"}), 400
+    query = data['query']
+    result = research_service.perform_research(query)
+    if isinstance(result, dict) and 'error' in result:
+        return jsonify(result), 500
+    return jsonify({"research_summary": result})
+
+@app.route('/api/decompose_step', methods=['POST'])
+@token_required
+def decompose_step(current_user_payload):
+    data = request.get_json()
+    if not data or 'parent_step_title' not in data:
+        return jsonify({"error": "Missing parent_step_title"}), 400
+    result = plan_service.get_step_decomposition(data['parent_step_title'])
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 500
+    return jsonify({"micro_steps": result})
 
 # --- APP RUN ---
 if __name__ == '__main__':

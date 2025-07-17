@@ -12,18 +12,26 @@ class PlanService:
 
     def create_new_plan(self, user_id, user_input, mode, extras=None):
         prompt = PromptLibrary.generate_base_plan(user_input, mode, extras)
-        plan_steps_json = gemini_service.generate_json_response(prompt)
+        # The AI now returns a full plan object, not just a list of steps
+        plan_data_json = gemini_service.generate_json_response(prompt)
         
-        if isinstance(plan_steps_json, dict) and 'error' in plan_steps_json:
-            return plan_steps_json
+        if isinstance(plan_data_json, dict) and 'error' in plan_data_json:
+            return plan_data_json
 
-        plan_id = str(uuid.uuid4())
+        # --- THIS IS THE CRITICAL FIX ---
+        # We now construct the plan object ourselves to guarantee a flat, correct structure,
+        # preventing the data inconsistency that caused the 403 error.
+        plan_id = plan_data_json.get('id', str(uuid.uuid4()))
+        
         new_plan = {
             "id": plan_id,
             "user_id": user_id,
-            "title": user_input,
-            "mode": mode,
-            "steps": plan_steps_json,
+            "title": plan_data_json.get('title', user_input),
+            "mode": plan_data_json.get('mode', mode),
+            "estimated_duration": plan_data_json.get('estimated_duration'),
+            "budget_level": plan_data_json.get('budget_level'),
+            "tags": plan_data_json.get('tags', []),
+            "steps": plan_data_json.get('steps', []),
             "created_at": "timestamp_placeholder"
         }
         
@@ -38,6 +46,7 @@ class PlanService:
         step_found = False
         for step in plan.get('steps', []):
             if step.get('id') == step_id:
+                # Toggle the is_complete status
                 step['is_complete'] = not step.get('is_complete', False)
                 step_found = True
                 break
@@ -70,6 +79,7 @@ class PlanService:
         if 'error' in new_steps_json:
             return new_steps_json, 500
 
+        # Update the original plan with the new steps
         original_steps = plan['steps']
         new_plan_steps = []
         for step in original_steps:
