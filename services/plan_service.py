@@ -18,20 +18,30 @@ class PlanService:
         if isinstance(plan_data_json, dict) and 'error' in plan_data_json:
             return plan_data_json
 
-        # --- THIS IS THE CRITICAL FIX ---
-        # We now construct the plan object ourselves to guarantee a flat, correct structure,
-        # preventing the data inconsistency that caused the 403 error.
+        # --- ROBUST FIX FOR DATA STRUCTURE ---
+        # This guarantees every field, especially user_id, is correctly placed at the top level,
+        # resolving the cause of the 403 error.
         plan_id = plan_data_json.get('id', str(uuid.uuid4()))
         
+        # Defensively determine the source of metadata, in case the AI nests it incorrectly.
+        metadata_source = plan_data_json
+        if 'steps' in plan_data_json and isinstance(plan_data_json['steps'], dict):
+             metadata_source = plan_data_json['steps']
+        
+        # Ensure 'steps' is always a list, even if the AI malforms it.
+        steps_list = plan_data_json.get('steps')
+        if isinstance(steps_list, dict):
+            steps_list = steps_list.get('steps', [])
+
         new_plan = {
             "id": plan_id,
-            "user_id": user_id,
-            "title": plan_data_json.get('title', user_input),
-            "mode": plan_data_json.get('mode', mode),
-            "estimated_duration": plan_data_json.get('estimated_duration'),
-            "budget_level": plan_data_json.get('budget_level'),
-            "tags": plan_data_json.get('tags', []),
-            "steps": plan_data_json.get('steps', []),
+            "user_id": user_id, # Always use the user_id from the authenticated session
+            "title": metadata_source.get('title', user_input),
+            "mode": mode, # Use the mode passed in, not the one from the AI, for consistency
+            "estimated_duration": metadata_source.get('estimated_duration'),
+            "budget_level": metadata_source.get('budget_level'),
+            "tags": metadata_source.get('tags', []),
+            "steps": steps_list if isinstance(steps_list, list) else [],
             "created_at": "timestamp_placeholder"
         }
         
@@ -76,7 +86,7 @@ class PlanService:
         prompt = PromptLibrary.replan_based_on_outcome(plan_json_str, completed_step_title, outcome, reason)
         new_steps_json = gemini_service.generate_json_response(prompt)
         
-        if 'error' in new_steps_json:
+        if isinstance(new_steps_json, dict) and 'error' in new_steps_json:
             return new_steps_json, 500
 
         # Update the original plan with the new steps
@@ -89,7 +99,10 @@ class PlanService:
             elif step['is_complete']:
                 new_plan_steps.append(step)
 
-        new_plan_steps.extend(new_steps_json)
+        # The AI returns a list of new steps, which we must extend to our list
+        if isinstance(new_steps_json, list):
+            new_plan_steps.extend(new_steps_json)
+        
         plan['steps'] = new_plan_steps
         
         return plan, 200
