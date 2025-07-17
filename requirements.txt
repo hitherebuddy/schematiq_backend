@@ -3,3 +3,4 @@ Flask-Cors
 Gunicorn
 google-generativeai
 PyJWT
+python-dotenv
